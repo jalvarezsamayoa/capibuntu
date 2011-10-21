@@ -1,6 +1,12 @@
 require 'rubygems'
 require 'highline'
 
+$:.unshift(File.expand_path('./lib', ENV['rvm_path']))
+require 'rvm/capistrano'
+set :rvm_ruby_string, '1.9.2'
+
+set :rvm_bin_path, "/usr/local/rvm/bin"
+
 default_run_options[:pty] = true
 
 set :application, "capibuntu"
@@ -17,7 +23,7 @@ set :remote_home, "/home/#{user}"
 
 set :scm, :git
 
-set :server_host, "192.168.2.7"
+set :server_host, "192.168.2.9"
 
 role :app, server_host                          # This may be the same as your `Web` server
 
@@ -40,19 +46,29 @@ namespace :capibuntu do
       sudo "apt-get update"
       sudo "apt-get upgrade -y"
     end
-  end
-
-  namespace :setup do
 
     desc "Configure ssh connection without login"
-    task :ssh, :roles => :app, :except => { :no_release => true } do
+    task :config_ssh, :roles => :app, :except => { :no_release => true } do
+      private_key = File.open("#{local_home}/.ssh/id_rsa","r")
       public_key = File.open("#{local_home}/.ssh/id_rsa.pub","r")
       run "cd #{remote_home} && mkdir -p .ssh"
       put public_key.read, "#{remote_home}/.ssh/authorized_keys"
       put public_key.read, "#{remote_home}/.ssh/authorized_keys2"
       run "chmod 700 #{remote_home}/.ssh"
       run "chmod 640 #{remote_home}/.ssh/authorized_keys2"
+
+      put private_key.read, "#{remote_home}/.ssh/id_rsa"
+      put public_key.read, "#{remote_home}/.ssh/id_rsa.pub"
+
+      sudo "chmod 600 ~/.ssh/id_rsa"
+      sudo "chmod 600 ~/.ssh/id_rsa.pub"
+
     end
+
+  end
+
+  namespace :setup do
+
 
     task :apache2, :roles => :app, :except => { :no_release => true } do
       sudo "apt-get install apache2 apache2.2-common apache2-mpm-prefork apache2-utils libexpat1 ssl-cert -y"
@@ -93,24 +109,25 @@ namespace :capibuntu do
     task :ruby192, :roles => :app, :except => { :no_release => true } do
       # requires rvm to be installed
       run "/usr/local/rvm/bin/rvm install 1.9.2"
-      run "rvm use 1.9.2- --default"
-      run "rvm wrapper ruby-1.9.2-p290"
+    end
+
+    task :ruby_config, :roles => :app, :excpet => { :no_release => true} do
+      run "/usr/local/rvm/bin/rvm use 1.9.2- --default"
+      run "/usr/local/rvm/bin/rvm wrapper ruby-1.9.2-p290"
     end
 
     desc "Install Passenger"
     task :passenger, :roles => :app, :except => { :no_release => true } do
       # requires apache2, rvm, ruby192 to be installed
-      # sudo "apt-get install libcurl4-openssl-dev apache2-prefork-dev
-      # libapr1-dev libaprutil1-dev -y"
+      sudo "apt-get install libcurl4-openssl-dev apache2-prefork-dev libapr1-dev libaprutil1-dev -y"
+      run "gem install bundler"
+      run "gem install passenger"
 
-      #      run "gem install passenger"
       input = ''
       run "rvmsudo passenger-install-apache2-module" do |ch,stream,out|
         next if out.chomp == input.chomp || out.chomp == ''
         print out
         ch.send_data(input = $stdin.gets) if out =~ /(Enter|ENTER|password)/
-        #        print out
-        #       ch.send_data "#{password}\n" if out =~ /password for #{user}:/
       end
     end
 
@@ -148,15 +165,15 @@ EOF
     end
 
     task :install, :roles => :app, :except => { :no_release => true } do
-      # ssh
-      # apache2
+      apache2
       # php5
-      # ruby
+      ruby
       # emacs
-      # rvm
-      # ruby192
-      # passenger
-      #config_passenger
+      rvm
+      ruby192
+      ruby_config
+      passenger
+      config_passenger
       mysql
     end
 
